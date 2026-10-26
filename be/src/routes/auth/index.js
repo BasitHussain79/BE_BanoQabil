@@ -24,7 +24,7 @@ export function routes(dependencies) {
   const account = authService(dependencies);
 
   router.post(
-    "/auth/signup",
+    "/signup",
     authLimit,
     validate([
       ...credentials,
