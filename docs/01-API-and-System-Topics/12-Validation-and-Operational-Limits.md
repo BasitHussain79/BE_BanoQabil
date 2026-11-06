@@ -49,6 +49,93 @@ GET /api/ads?page=0&limit=500
 
 The malformed pagination must be rejected by validation, not silently expanded to an expensive query.
 
+## Annotated implementation examples (read alongside the real source)
+
+> **Important:** These are newly written, commented **teaching implementations based on the supplied README**, **not recovered source code**. The published site did not expose the repository source for verification. Do not paste every example into one source file: overlapping snippets such as schema declarations are meant to be studied individually, then reconciled with your codebase. Each snippet identifies its intended source path and explains the business rule it demonstrates.
+
+### Validate input at the HTTP boundary
+
+**File illustrated:** `src/validators/ads.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { body, param, query, validationResult } from 'express-validator';
+
+// PATCH accepts only fields the service can safely apply.
+export const adTitle = body('title').optional().isString().trim().isLength({ min: 5, max: 100 });
+export const adPrice = body('price').optional().isFloat({ min: 1, max: 1_000_000_000 });
+export const adId = param('id').isMongoId();
+export const listPage = query('page').optional().isInt({ min: 1, max: 1000 });
+export const listLimit = query('limit').optional().isInt({ min: 1, max: 50 });
+
+export function requireValid(req, res, next) {
+  const result = validationResult(req);
+  if (!result.isEmpty()) {
+    // Do not echo raw request bodies or sensitive rejected input.
+    return res.status(422).json({ error: 'Invalid request' });
+  }
+  next();
+}
+```
+
+**Why this code exists:** HTTP boundary validation complements Mongoose schema validation and DB uniqueness.
+
+**Try it:** Send a page=1001 and a malformed ObjectId; confirm they are rejected before reaching a service.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Normalize and validate registration input
+
+**File illustrated:** `src/validators/auth.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { body } from 'express-validator';
+
+export const signupRules = [
+  body('name').isString().trim().isLength({ min: 2, max: 100 }),
+  body('email').isEmail().normalizeEmail(),
+  body('password').isString().isLength({ min: 12, max: 72 })
+    .custom((value) => Buffer.byteLength(value, 'utf8') <= 72),
+];
+// Verify rule set is paired with requireValid on the route.
+// Validation is not authorization: do not accept role / active / verified.
+```
+
+**Why this code exists:** Length validation must check both Unicode character and UTF-8 byte boundaries.
+
+**Try it:** Try 72 multi-byte characters and show the 72-byte bcrypt boundary still rejects it.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Educational in-process sliding window
+
+**File illustrated:** `src/middleware/limits.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+export function localWindowLimit({ max, windowMs = 60_000, now = () => Date.now() }) {
+  const store = new Map(); // local to ONE Node process, not distributed
+  return (req, res, next) => {
+    const ip = req.ip; // configure trust proxy EXACTLY for your ingress
+    const bucket = store.get(ip);
+    const current = now();
+    const entry = !bucket || current - bucket.started >= windowMs
+      ? { started: current, count: 0 } : bucket;
+    entry.count += 1;
+    store.set(ip, entry);
+    if (entry.count > max) return res.status(429).json({ error: 'Too many requests' });
+    next();
+  };
+}
+// Example wiring: app.use(localWindowLimit({ max: 300 }));
+// Auth routes additionally use localWindowLimit({ max: 30 }).
+// Educational example: implement eviction and shared atomic limits in production.
+```
+
+**Why this code exists:** In-memory maps have different counts per process and need cleanup; they are NOT a cluster-wide defense.
+
+**Try it:** Explain behavior with two replicas and why shared storage and correct proxy config are needed.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
 ## Verification checklist
 
 - [ ] Oversized JSON, malformed JSON, unknown/unaccepted keys.

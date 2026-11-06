@@ -6,11 +6,21 @@
 
 ## What is in this pack?
 
-- **18 individually authored topic guides** for API functionality and underlying system concepts.
-- **26 standalone Markdown class handouts**, exactly two classes per week for 13 weeks, with the same **14 teaching blocks** as the original course.
+- **18 individually authored topic guides with annotated JavaScript examples** for API functionality and underlying system concepts.
+- **26 standalone Markdown class handouts with focused commented code labs**, exactly two classes per week for 13 weeks, with the same **14 teaching blocks** as the original course.
 - Project review, quick start, architecture map, persona business flows, full technology stack, canonical route inventory, limits/status reference, and source-verification checklist.
 
 **Source-integrity note:** The public project page was accessible but did not provide readable source content to the inspection tool. The actual repository files were not supplied, so this pack reproduces the shared README's documented behavior and flags details that need code verification. No tests were executed in this documentation task.
+
+## Updated code-rich edition
+
+Every topic guide includes **multiple commented source-aligned examples** showing the documented request flow. Every one of the **26 class handouts** has a **section 9A: Guided annotated code lab** with real JavaScript syntax and commentary explaining purpose, checks, and exercises.
+
+**Repository warning:** The publicly linked page did not yield source code and no project repository was attached. These examples are original teaching references based on the supplied README, **not verbatim source**. For exact implementation, compare with your `src/` files, especially the models, routes, services and tests. No live application integration suite was executed as part of this documentation edition.
+
+- [How to read annotated code](00-Start-Here/06-How-to-Read-Annotated-Code.md)
+- [Annotated code index](03-Reference/04-Annotated-Code-Index.md)
+- [Source comparison and testing](03-Reference/05-Source-Comparison-and-Code-Testing.md)
 
 ## Start here
 
@@ -19,9 +29,10 @@
 3. [System architecture](00-Start-Here/03-Architecture-Overview.md)
 4. [Marketplace business flows](00-Start-Here/04-Marketplace-Business-Flows.md)
 5. [Complete technology stack](00-Start-Here/05-Complete-Technology-Stack.md)
-6. [Complete API inventory](03-Reference/01-Complete-API-Inventory.md)
-7. [Operational limits and HTTP statuses](03-Reference/02-Limits-and-Status-Cheat-Sheet.md)
-8. [Source verification checklist](03-Reference/03-Verification-Checklist.md)
+6. [Code-reading guide](00-Start-Here/06-How-to-Read-Annotated-Code.md)
+7. [Complete API inventory](03-Reference/01-Complete-API-Inventory.md)
+8. [Operational limits and HTTP statuses](03-Reference/02-Limits-and-Status-Cheat-Sheet.md)
+9. [Source verification checklist](03-Reference/03-Verification-Checklist.md)
 
 ## Part A — Each API/system topic as a separate `.md` file
 
@@ -110,4 +121,4 @@ No React/Next.js client, dashboards, checkout/payments, refresh token rotation/r
 
 ## Licensing / authorship note
 
-This curriculum is an editorial restructuring of the README you supplied for teaching. It does not include copied repository source code, real environment secrets, or downloaded third-party assets.
+This curriculum is an editorial restructuring of the README you supplied for teaching. It includes original, commented teaching examples aligned with the README; it does not include copied repository source code, real environment secrets, or downloaded third-party assets.

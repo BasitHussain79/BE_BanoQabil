@@ -53,6 +53,125 @@ Indexes/conditional writes complement request-time validation.
 5. Run a valid case and at least two invalid cases. Capture **HTTP status**, safe response shape, **database state**, and provider effects if any.
 6. State which validation or authorization boundary prevented an invalid transition; add a regression test when feasible.
 
+## 9A. Guided annotated code lab
+
+The following commented examples are aligned to the **documented behavior**, not copied from the unseen repository. Read each block carefully, then compare it with the matching module in your source. Treat unknown field names and integration wiring as items to verify. Code blocks are examples within this Markdown class, not proof that those exact identifiers occur in Project 01.
+
+### Educational in-process sliding window
+
+**File illustrated:** `src/middleware/limits.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+export function localWindowLimit({ max, windowMs = 60_000, now = () => Date.now() }) {
+  const store = new Map(); // local to ONE Node process, not distributed
+  return (req, res, next) => {
+    const ip = req.ip; // configure trust proxy EXACTLY for your ingress
+    const bucket = store.get(ip);
+    const current = now();
+    const entry = !bucket || current - bucket.started >= windowMs
+      ? { started: current, count: 0 } : bucket;
+    entry.count += 1;
+    store.set(ip, entry);
+    if (entry.count > max) return res.status(429).json({ error: 'Too many requests' });
+    next();
+  };
+}
+// Example wiring: app.use(localWindowLimit({ max: 300 }));
+// Auth routes additionally use localWindowLimit({ max: 30 }).
+// Educational example: implement eviction and shared atomic limits in production.
+```
+
+**Why this code exists:** In-memory maps have different counts per process and need cleanup; they are NOT a cluster-wide defense.
+
+**Try it:** Explain behavior with two replicas and why shared storage and correct proxy config are needed.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Validate input at the HTTP boundary
+
+**File illustrated:** `src/validators/ads.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { body, param, query, validationResult } from 'express-validator';
+
+// PATCH accepts only fields the service can safely apply.
+export const adTitle = body('title').optional().isString().trim().isLength({ min: 5, max: 100 });
+export const adPrice = body('price').optional().isFloat({ min: 1, max: 1_000_000_000 });
+export const adId = param('id').isMongoId();
+export const listPage = query('page').optional().isInt({ min: 1, max: 1000 });
+export const listLimit = query('limit').optional().isInt({ min: 1, max: 50 });
+
+export function requireValid(req, res, next) {
+  const result = validationResult(req);
+  if (!result.isEmpty()) {
+    // Do not echo raw request bodies or sensitive rejected input.
+    return res.status(422).json({ error: 'Invalid request' });
+  }
+  next();
+}
+```
+
+**Why this code exists:** HTTP boundary validation complements Mongoose schema validation and DB uniqueness.
+
+**Try it:** Send a page=1001 and a malformed ObjectId; confirm they are rejected before reaching a service.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Verify bearer token and reload current User
+
+**File illustrated:** `src/middleware/auth.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
+import { User } from '../models/index.js';
+
+export function requireAuth(jwtSecret) {
+  return async (req, res, next) => {
+    try {
+      const match = /^Bearer (\S+)$/.exec(req.get('Authorization') ?? '');
+      if (!match) return res.status(401).json({ error: 'Unauthorized' });
+      // Pin allowed algorithm AND claims; never use jwt.decode for auth.
+      const payload = jwt.verify(match[1], jwtSecret, {
+        algorithms: ['HS256'], issuer: 'basit-marketplace',
+        audience: 'marketplace-client',
+      });
+      if (!mongoose.isValidObjectId(payload.sub)) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      // Every request uses current role, active and verified values from DB.
+      const user = await User.findById(payload.sub);
+      if (!user?.active || !user?.verified) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      req.user = user;
+      next();
+    } catch {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  };
+}
+
+export const roles = (...allowed) => (req, res, next) =>
+  allowed.includes(req.user?.role)
+    ? next()
+    : res.status(403).json({ error: 'Forbidden' });
+```
+
+**Why this code exists:** The middleware rejects invalid identity with 401 and valid identity lacking permission with 403.
+
+**Try it:** Try an expired token, an inactive user and a demoted admin.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Explain the request end to end
+
+1. **Input:** Which HTTP fields come from the client? Which values must be derived from the current User or database?
+2. **Policy:** Point to the authentication, role, owner, participant, validation or state check.
+3. **Database/provider effects:** Identify the conditional query, schema/index, and any SMTP/Cloudinary operation.
+4. **Failure:** Predict HTTP status AND durable state when one operation fails.
+5. **Evidence:** Capture a successful request, a denied request, and a database or fake-provider assertion.
+
 ## 10. Code explanation / tracing exercise
 
 Write a five-column trace table: **route** | **validator/middleware** | **service rule** | **database/provider operation** | **public response**. Fill it from the actual source, not from assumed Express scaffolding. If a source snippet is absent, leave its exact identifier as `verify in source`.

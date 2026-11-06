@@ -54,6 +54,63 @@ limit = 10
 
 A list endpoint returns its successful payload under `data`; inspect the concrete route to verify whether it is nested or directly an array.
 
+## Annotated implementation examples (read alongside the real source)
+
+> **Important:** These are newly written, commented **teaching implementations based on the supplied README**, **not recovered source code**. The published site did not expose the repository source for verification. Do not paste every example into one source file: overlapping snippets such as schema declarations are meant to be studied individually, then reconciled with your codebase. Each snippet identifies its intended source path and explains the business rule it demonstrates.
+
+### Bounded offset pagination and stable sort
+
+**File illustrated:** `src/utils/query.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+const SORT = {
+  newest: { createdAt: -1, _id: -1 },
+  'price-asc': { price: 1, _id: -1 },
+  'price-desc': { price: -1, _id: -1 },
+};
+export function pagination(query) {
+  const page = Number(query.page ?? 1);
+  const limit = Number(query.limit ?? 20);
+  // Validate integer bounds BEFORE passing data to this helper in routes.
+  if (!Number.isInteger(page) || page < 1 || page > 1000 ||
+      !Number.isInteger(limit) || limit < 1 || limit > 50) {
+    const e = new Error('Invalid pagination'); e.status = 422; throw e;
+  }
+  return { skip: (page - 1) * limit, limit,
+    sort: SORT[query.sort ?? 'newest'] ?? SORT.newest };
+}
+```
+
+**Why this code exists:** The _id tie-breaker stabilizes ordering for identical prices/timestamps. Results do not include total counts in the documented contract.
+
+**Try it:** Insert equal-price ads and verify page boundaries and sort order.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Find public ads with bounded search and pagination
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { Listing } from '../models/index.js';
+import { buildPublicAdFilter, pagination } from '../utils/query.js';
+
+export async function searchAds(input) {
+  // Validate type, length, ObjectId and price bounds in route validators.
+  const filter = buildPublicAdFilter(input);
+  const { skip, limit, sort } = pagination(input);
+  // Skip/limit is bounded. No total count is promised by this API.
+  const ads = await Listing.find(filter).sort(sort).skip(skip).limit(limit).lean();
+  return ads;
+}
+```
+
+**Why this code exists:** Validation, mandatory visibility and stable sort compose into a predictable query.
+
+**Try it:** Query for an unpublished draft with q and filters and show it never appears.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
 ## Verification checklist
 
 - [ ] Omitted page/limit defaults; page 2 returns expected slice.

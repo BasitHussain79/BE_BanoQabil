@@ -50,6 +50,71 @@ Queries use indexes; no total count query in current app.
 5. Run a valid case and at least two invalid cases. Capture **HTTP status**, safe response shape, **database state**, and provider effects if any.
 6. State which validation or authorization boundary prevented an invalid transition; add a regression test when feasible.
 
+## 9A. Guided annotated code lab
+
+The following commented examples are aligned to the **documented behavior**, not copied from the unseen repository. Read each block carefully, then compare it with the matching module in your source. Treat unknown field names and integration wiring as items to verify. Code blocks are examples within this Markdown class, not proof that those exact identifiers occur in Project 01.
+
+### Bounded offset pagination and stable sort
+
+**File illustrated:** `src/utils/query.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+const SORT = {
+  newest: { createdAt: -1, _id: -1 },
+  'price-asc': { price: 1, _id: -1 },
+  'price-desc': { price: -1, _id: -1 },
+};
+export function pagination(query) {
+  const page = Number(query.page ?? 1);
+  const limit = Number(query.limit ?? 20);
+  // Validate integer bounds BEFORE passing data to this helper in routes.
+  if (!Number.isInteger(page) || page < 1 || page > 1000 ||
+      !Number.isInteger(limit) || limit < 1 || limit > 50) {
+    const e = new Error('Invalid pagination'); e.status = 422; throw e;
+  }
+  return { skip: (page - 1) * limit, limit,
+    sort: SORT[query.sort ?? 'newest'] ?? SORT.newest };
+}
+```
+
+**Why this code exists:** The _id tie-breaker stabilizes ordering for identical prices/timestamps. Results do not include total counts in the documented contract.
+
+**Try it:** Insert equal-price ads and verify page boundaries and sort order.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Find public ads with bounded search and pagination
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { Listing } from '../models/index.js';
+import { buildPublicAdFilter, pagination } from '../utils/query.js';
+
+export async function searchAds(input) {
+  // Validate type, length, ObjectId and price bounds in route validators.
+  const filter = buildPublicAdFilter(input);
+  const { skip, limit, sort } = pagination(input);
+  // Skip/limit is bounded. No total count is promised by this API.
+  const ads = await Listing.find(filter).sort(sort).skip(skip).limit(limit).lean();
+  return ads;
+}
+```
+
+**Why this code exists:** Validation, mandatory visibility and stable sort compose into a predictable query.
+
+**Try it:** Query for an unpublished draft with q and filters and show it never appears.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Explain the request end to end
+
+1. **Input:** Which HTTP fields come from the client? Which values must be derived from the current User or database?
+2. **Policy:** Point to the authentication, role, owner, participant, validation or state check.
+3. **Database/provider effects:** Identify the conditional query, schema/index, and any SMTP/Cloudinary operation.
+4. **Failure:** Predict HTTP status AND durable state when one operation fails.
+5. **Evidence:** Capture a successful request, a denied request, and a database or fake-provider assertion.
+
 ## 10. Code explanation / tracing exercise
 
 Write a five-column trace table: **route** | **validator/middleware** | **service rule** | **database/provider operation** | **public response**. Fill it from the actual source, not from assumed Express scaffolding. If a source snippet is absent, leave its exact identifier as `verify in source`.

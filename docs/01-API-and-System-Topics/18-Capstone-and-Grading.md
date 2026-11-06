@@ -43,6 +43,103 @@ health → signup → OTP → login → admin → category → draft
 → report → resolve → sold → soft delete → negative cases → tests
 ```
 
+## Annotated implementation examples (read alongside the real source)
+
+> **Important:** These are newly written, commented **teaching implementations based on the supplied README**, **not recovered source code**. The published site did not expose the repository source for verification. Do not paste every example into one source file: overlapping snippets such as schema declarations are meant to be studied individually, then reconciled with your codebase. Each snippet identifies its intended source path and explains the business rule it demonstrates.
+
+### Define a measurable end-to-end verification matrix
+
+**File illustrated:** `tests/capstone.scenarios.md` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+// Pseudocode for your capstone test plan (not an executable test file).
+// GIVEN admin, moderator, seller, buyer and unrelated user
+// WHEN seller creates a draft with status='published' in request body
+// THEN saved status MUST be 'draft', public GET MUST be 404.
+// WHEN seller uploads JPEG and requests publish
+// THEN state MUST be pending; moderator can approve exactly once.
+// WHEN buyer favorites and opens inquiry twice
+// THEN one Favorite and one Conversation MUST exist.
+// WHEN unrelated user requests thread messages
+// THEN return private 404, never thread metadata.
+// WHEN staged Cloudinary upload/destroy fails
+// THEN persist Cleanup job and retry it via admin operation.
+// WHEN admin is demoted while an old JWT exists
+// THEN the next admin request MUST return 403.
+```
+
+**Why this code exists:** The final demonstration should exercise denied states and persisted effects, not just happy-path responses.
+
+**Try it:** Turn every GIVEN/WHEN/THEN row into a Postman check or automated integration test.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Ordered scenario with saved IDs and negative checks
+
+**File illustrated:** `postman/collection.json` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+// Example Postman Tests tab for creating a draft ad:
+const response = pm.response.json();
+pm.test('create draft returns 201', () => {
+  pm.response.to.have.status(201);
+  pm.expect(response).to.have.property('data');
+  pm.expect(response.data.status).to.eql('draft');
+});
+pm.environment.set('listingId', response.data._id ?? response.data.id);
+
+// Follow-up Postman requests:
+// POST {{baseUrl}}/api/ads/{{listingId}}/images (form-data images[])
+// POST {{baseUrl}}/api/ads/{{listingId}}/publish
+// POST {{baseUrl}}/api/moderation/ads/{{listingId}} (admin Bearer)
+// GET  {{baseUrl}}/api/ads/{{listingId}} (now visible)
+// Use separate actor tokens: seller, buyer, moderator/admin.
+```
+
+**Why this code exists:** An API workflow is meaningful only if state captured in one request is used in the following step.
+
+**Try it:** Run a clean sequence and add a negative case at each transition.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### In-process HTTP tests and deterministic dependencies
+
+**File illustrated:** `tests/core.test.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import request from 'supertest';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import mongoose from 'mongoose';
+import { createApp } from '../src/app.js';
+
+let mongo;
+before(async () => {
+  // Disposable DB makes tests independent of a developer's real data.
+  mongo = await MongoMemoryServer.create();
+  await mongoose.connect(mongo.getUri());
+});
+after(async () => { await mongoose.disconnect(); await mongo.stop(); });
+
+test('GET /health exposes process shape', async () => {
+  const app = createApp({
+    authRoutes: (_req, _res, next) => next(),
+    marketplaceRoutes: (_req, _res, next) => next(),
+  });
+  const res = await request(app).get('/health');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, 'OK');
+  assert.equal(typeof res.body.uptime, 'number');
+});
+```
+
+**Why this code exists:** A test should execute the real app stack while faking fallible providers and time.
+
+**Try it:** Add a negative HTTP test, then assert persisted MongoDB state after the error.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
 ## Verification checklist
 
 - [ ] Rubric covers all declared flows.

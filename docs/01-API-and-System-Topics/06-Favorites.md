@@ -51,6 +51,66 @@ DELETE /api/favorites/<ad-id>
 Authorization: Bearer <access-token>
 ```
 
+## Annotated implementation examples (read alongside the real source)
+
+> **Important:** These are newly written, commented **teaching implementations based on the supplied README**, **not recovered source code**. The published site did not expose the repository source for verification. Do not paste every example into one source file: overlapping snippets such as schema declarations are meant to be studied individually, then reconciled with your codebase. Each snippet identifies its intended source path and explains the business rule it demonstrates.
+
+### Unique favorite relationship
+
+**File illustrated:** `src/models/index.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import mongoose from 'mongoose';
+const schema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  listing: { type: mongoose.Schema.Types.ObjectId, ref: 'Listing', required: true },
+}, { timestamps: true });
+// Database uniqueness is the final race-safe duplicate guard.
+schema.index({ user: 1, listing: 1 }, { unique: true });
+export const Favorite = mongoose.model('Favorite', schema);
+```
+
+**Why this code exists:** Favorites are relationships rather than arrays duplicated inside the user and listing.
+
+**Try it:** Issue simultaneous favorite requests and verify only one pair exists.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Idempotent PUT/DELETE and public-safe GET
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { Favorite, Listing } from '../models/index.js';
+
+export async function saveFavorite(userId, listingId) {
+  // Do not allow favoriting a draft, sold or archived ad.
+  const visible = await Listing.exists({ _id: listingId,
+    status: 'published', deleted: false });
+  if (!visible) { const e = new Error('Not found'); e.status = 404; throw e; }
+  await Favorite.updateOne({ user: userId, listing: listingId },
+    { $setOnInsert: { user: userId, listing: listingId } }, { upsert: true });
+  return { saved: true }; // repeated PUT expresses the same desired state
+}
+export async function removeFavorite(userId, listingId) {
+  await Favorite.deleteOne({ user: userId, listing: listingId });
+  return { removed: true }; // repeated DELETE remains successful
+}
+export async function visibleFavorites(userId, { page = 1, limit = 20 }) {
+  const rows = await Favorite.find({ user: userId })
+    .sort({ _id: -1 }).skip((page - 1) * limit).limit(limit)
+    .populate({ path: 'listing', match: { status: 'published', deleted: false } });
+  // Populate can yield null for hidden listings: remove those entries.
+  return rows.filter((row) => row.listing !== null);
+}
+```
+
+**Why this code exists:** A unique compound index, upsert and idempotent method semantics protect repeated requests.
+
+**Try it:** Favorite twice, sell the ad, list favorites again, remove twice.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
 ## Verification checklist
 
 - [ ] PUT twice results in one Favorite document.

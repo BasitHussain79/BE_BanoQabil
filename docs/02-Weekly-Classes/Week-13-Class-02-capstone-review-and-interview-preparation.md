@@ -53,6 +53,73 @@ Show eight models, unique indexes, versions, Cleanup and reports.
 5. Run a valid case and at least two invalid cases. Capture **HTTP status**, safe response shape, **database state**, and provider effects if any.
 6. State which validation or authorization boundary prevented an invalid transition; add a regression test when feasible.
 
+## 9A. Guided annotated code lab
+
+The following commented examples are aligned to the **documented behavior**, not copied from the unseen repository. Read each block carefully, then compare it with the matching module in your source. Treat unknown field names and integration wiring as items to verify. Code blocks are examples within this Markdown class, not proof that those exact identifiers occur in Project 01.
+
+### Define a measurable end-to-end verification matrix
+
+**File illustrated:** `tests/capstone.scenarios.md` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+// Pseudocode for your capstone test plan (not an executable test file).
+// GIVEN admin, moderator, seller, buyer and unrelated user
+// WHEN seller creates a draft with status='published' in request body
+// THEN saved status MUST be 'draft', public GET MUST be 404.
+// WHEN seller uploads JPEG and requests publish
+// THEN state MUST be pending; moderator can approve exactly once.
+// WHEN buyer favorites and opens inquiry twice
+// THEN one Favorite and one Conversation MUST exist.
+// WHEN unrelated user requests thread messages
+// THEN return private 404, never thread metadata.
+// WHEN staged Cloudinary upload/destroy fails
+// THEN persist Cleanup job and retry it via admin operation.
+// WHEN admin is demoted while an old JWT exists
+// THEN the next admin request MUST return 403.
+```
+
+**Why this code exists:** The final demonstration should exercise denied states and persisted effects, not just happy-path responses.
+
+**Try it:** Turn every GIVEN/WHEN/THEN row into a Postman check or automated integration test.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Ordered scenario with saved IDs and negative checks
+
+**File illustrated:** `postman/collection.json` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+// Example Postman Tests tab for creating a draft ad:
+const response = pm.response.json();
+pm.test('create draft returns 201', () => {
+  pm.response.to.have.status(201);
+  pm.expect(response).to.have.property('data');
+  pm.expect(response.data.status).to.eql('draft');
+});
+pm.environment.set('listingId', response.data._id ?? response.data.id);
+
+// Follow-up Postman requests:
+// POST {{baseUrl}}/api/ads/{{listingId}}/images (form-data images[])
+// POST {{baseUrl}}/api/ads/{{listingId}}/publish
+// POST {{baseUrl}}/api/moderation/ads/{{listingId}} (admin Bearer)
+// GET  {{baseUrl}}/api/ads/{{listingId}} (now visible)
+// Use separate actor tokens: seller, buyer, moderator/admin.
+```
+
+**Why this code exists:** An API workflow is meaningful only if state captured in one request is used in the following step.
+
+**Try it:** Run a clean sequence and add a negative case at each transition.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Explain the request end to end
+
+1. **Input:** Which HTTP fields come from the client? Which values must be derived from the current User or database?
+2. **Policy:** Point to the authentication, role, owner, participant, validation or state check.
+3. **Database/provider effects:** Identify the conditional query, schema/index, and any SMTP/Cloudinary operation.
+4. **Failure:** Predict HTTP status AND durable state when one operation fails.
+5. **Evidence:** Capture a successful request, a denied request, and a database or fake-provider assertion.
+
 ## 10. Code explanation / tracing exercise
 
 Write a five-column trace table: **route** | **validator/middleware** | **service rule** | **database/provider operation** | **public response**. Fill it from the actual source, not from assumed Express scaffolding. If a source snippet is absent, leave its exact identifier as `verify in source`.

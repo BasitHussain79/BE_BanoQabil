@@ -52,6 +52,67 @@ Public response contracts and robust mapping of validation, authorization, concu
 
 These are **shape examples**, not exact literal response bodies for any specific endpoint.
 
+## Annotated implementation examples (read alongside the real source)
+
+> **Important:** These are newly written, commented **teaching implementations based on the supplied README**, **not recovered source code**. The published site did not expose the repository source for verification. Do not paste every example into one source file: overlapping snippets such as schema declarations are meant to be studied individually, then reconciled with your codebase. Each snippet identifies its intended source path and explains the business rule it demonstrates.
+
+### Map expected failures and redact unknown errors
+
+**File illustrated:** `src/middleware/errors.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import mongoose from 'mongoose';
+import multer from 'multer';
+
+export class AppError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+export function errorHandler(err, req, res, next) {
+  if (res.headersSent) return next(err); // Express can no longer replace body
+  if (err instanceof AppError) {
+    return res.status(err.status).json({ error: err.message });
+  }
+  if (err?.code === 11000 || err instanceof mongoose.Error.VersionError) {
+    return res.status(409).json({ error: 'Conflict' });
+  }
+  if (err instanceof mongoose.Error.ValidationError ||
+      err instanceof mongoose.Error.CastError || err instanceof multer.MulterError) {
+    return res.status(422).json({ error: 'Invalid request' });
+  }
+  // Do not send SMTP/Cloudinary/internal stack traces or secrets to clients.
+  return res.status(500).json({ error: 'Internal server error' });
+}
+```
+
+**Why this code exists:** A stable error contract prevents accidental exposure of provider exceptions.
+
+**Try it:** Throw an Error containing a dummy SMTP password; confirm the client sees only a redacted 500.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Keep controller response translation thin
+
+**File illustrated:** `src/controllers/http.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+// Express 5 forwards rejected async handler promises to error middleware.
+export const respond = (action, successStatus = 200) => async (req, res) => {
+  const result = await action(req); // service owns business decisions
+  return res.status(successStatus).json({ data: result });
+};
+
+// Example route composition (reference wiring):
+// router.post('/ads', requireAuth, validateCreateAd,
+//   respond((req) => services.createDraft(req.user.id, req.body), 201));
+// The service must pick allowed fields; never persist req.body wholesale.
+```
+
+**Why this code exists:** Controller has one job: translate a service result into the established JSON envelope.
+
+**Try it:** Trace how an AppError becomes an error response through Express 5 middleware.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
 ## Verification checklist
 
 - [ ] Assert response object and stored state for 200/201/400/401/403/404/409/422/429/500.

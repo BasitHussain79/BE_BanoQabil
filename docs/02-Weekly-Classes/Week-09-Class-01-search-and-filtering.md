@@ -50,6 +50,73 @@ Listing index and predicate support published public discovery.
 5. Run a valid case and at least two invalid cases. Capture **HTTP status**, safe response shape, **database state**, and provider effects if any.
 6. State which validation or authorization boundary prevented an invalid transition; add a regression test when feasible.
 
+## 9A. Guided annotated code lab
+
+The following commented examples are aligned to the **documented behavior**, not copied from the unseen repository. Read each block carefully, then compare it with the matching module in your source. Treat unknown field names and integration wiring as items to verify. Code blocks are examples within this Markdown class, not proof that those exact identifiers occur in Project 01.
+
+### Safe public ad filter builder
+
+**File illustrated:** `src/utils/query.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+export const escapeRegex = (value) =>
+  // Escape regex special characters so q='.*' means literal punctuation.
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export function buildPublicAdFilter(q) {
+  // The client can NEVER override this mandatory visibility condition.
+  const filter = { status: 'published', deleted: false };
+  if (q.q) filter.title = { $regex: escapeRegex(q.q), $options: 'i' };
+  if (q.city) filter.city = q.city;
+  if (q.condition) filter.condition = q.condition;
+  if (q.category) filter.category = q.category;
+  if (q.minPrice !== undefined || q.maxPrice !== undefined) {
+    filter.price = {};
+    if (q.minPrice !== undefined) filter.price.$gte = Number(q.minPrice);
+    if (q.maxPrice !== undefined) filter.price.$lte = Number(q.maxPrice);
+  }
+  return filter;
+}
+```
+
+**Why this code exists:** Allowlist query fields and add mandatory published/deleted predicates independently of input.
+
+**Try it:** Search with q=.* and verify private listings do not appear.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Find public ads with bounded search and pagination
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { Listing } from '../models/index.js';
+import { buildPublicAdFilter, pagination } from '../utils/query.js';
+
+export async function searchAds(input) {
+  // Validate type, length, ObjectId and price bounds in route validators.
+  const filter = buildPublicAdFilter(input);
+  const { skip, limit, sort } = pagination(input);
+  // Skip/limit is bounded. No total count is promised by this API.
+  const ads = await Listing.find(filter).sort(sort).skip(skip).limit(limit).lean();
+  return ads;
+}
+```
+
+**Why this code exists:** Validation, mandatory visibility and stable sort compose into a predictable query.
+
+**Try it:** Query for an unpublished draft with q and filters and show it never appears.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Explain the request end to end
+
+1. **Input:** Which HTTP fields come from the client? Which values must be derived from the current User or database?
+2. **Policy:** Point to the authentication, role, owner, participant, validation or state check.
+3. **Database/provider effects:** Identify the conditional query, schema/index, and any SMTP/Cloudinary operation.
+4. **Failure:** Predict HTTP status AND durable state when one operation fails.
+5. **Evidence:** Capture a successful request, a denied request, and a database or fake-provider assertion.
+
 ## 10. Code explanation / tracing exercise
 
 Write a five-column trace table: **route** | **validator/middleware** | **service rule** | **database/provider operation** | **public response**. Fill it from the actual source, not from assumed Express scaffolding. If a source snippet is absent, leave its exact identifier as `verify in source`.

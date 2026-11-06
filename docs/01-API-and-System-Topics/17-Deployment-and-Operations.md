@@ -50,6 +50,97 @@ TLS ingress / exact proxy
 
 Everything tagged **future** is a gap to plan, not functionality already present.
 
+## Annotated implementation examples (read alongside the real source)
+
+> **Important:** These are newly written, commented **teaching implementations based on the supplied README**, **not recovered source code**. The published site did not expose the repository source for verification. Do not paste every example into one source file: overlapping snippets such as schema declarations are meant to be studied individually, then reconciled with your codebase. Each snippet identifies its intended source path and explains the business rule it demonstrates.
+
+### Connect DB before listening and shut down gracefully
+
+**File illustrated:** `src/server.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import mongoose from 'mongoose';
+import { createApp } from './app.js';
+
+export async function start({ mongoUri, port, routes }) {
+  await mongoose.connect(mongoUri); // fail fast before accepting requests
+  const server = createApp(routes).listen(port);
+  let stopping = false;
+  async function shutdown(signal) {
+    if (stopping) return;
+    stopping = true;
+    const hardStop = setTimeout(() => process.exit(1), 10_000);
+    hardStop.unref(); // do not keep process alive just for this timeout
+    server.close(async (error) => {
+      try { await mongoose.disconnect(); }
+      finally { clearTimeout(hardStop); process.exit(error ? 1 : 0); }
+    });
+  }
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+  return server;
+}
+```
+
+**Why this code exists:** The network listener is separate from app composition, and shutdown has a bounded deadline.
+
+**Try it:** Send SIGTERM during an idle process; check listener closes before Mongoose disconnect.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Educational in-process sliding window
+
+**File illustrated:** `src/middleware/limits.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+export function localWindowLimit({ max, windowMs = 60_000, now = () => Date.now() }) {
+  const store = new Map(); // local to ONE Node process, not distributed
+  return (req, res, next) => {
+    const ip = req.ip; // configure trust proxy EXACTLY for your ingress
+    const bucket = store.get(ip);
+    const current = now();
+    const entry = !bucket || current - bucket.started >= windowMs
+      ? { started: current, count: 0 } : bucket;
+    entry.count += 1;
+    store.set(ip, entry);
+    if (entry.count > max) return res.status(429).json({ error: 'Too many requests' });
+    next();
+  };
+}
+// Example wiring: app.use(localWindowLimit({ max: 300 }));
+// Auth routes additionally use localWindowLimit({ max: 30 }).
+// Educational example: implement eviction and shared atomic limits in production.
+```
+
+**Why this code exists:** In-memory maps have different counts per process and need cleanup; they are NOT a cluster-wide defense.
+
+**Try it:** Explain behavior with two replicas and why shared storage and correct proxy config are needed.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Production readiness evidence checklist
+
+**File illustrated:** `docs/production-readiness.md` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```markdown
+# Proposed operational checklist — NOT implemented production infrastructure
+# [ ] TLS terminates at a trusted ingress; proxy trust matches exact hops.
+# [ ] CORS allows intended application origins, not wildcard credentials.
+# [ ] JWT/OTP secrets are managed, rotated and never logged.
+# [ ] App/auth rate limits use shared atomic storage across replicas.
+# [ ] Email, image cleanup and reconciliation use durable jobs.
+# [ ] Backups are automated AND sample restores have been tested.
+# [ ] Metrics/alerts cover 5xx rate, latency, SMTP/Cloudinary failures.
+# [ ] Retention, deletion requests and access audit policies are approved.
+# [ ] Token renewal/revocation is deliberately designed if required.
+```
+
+**Why this code exists:** This is a proposed extension; the README explicitly says shared limits, monitoring and deployment pipeline are not implemented.
+
+**Try it:** Mark each item Not started / Designed / Verified and attach evidence instead of checking boxes without proof.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
 ## Verification checklist
 
 - [ ] Kill process during upload to study orphan risk.

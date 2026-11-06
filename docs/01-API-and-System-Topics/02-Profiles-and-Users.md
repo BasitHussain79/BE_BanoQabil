@@ -56,6 +56,131 @@ Content-Type: application/json
 
 For `/api/users/:id`, confirm the precise role/status request body in the source validator or Postman collection before sending it.
 
+## Annotated implementation examples (read alongside the real source)
+
+> **Important:** These are newly written, commented **teaching implementations based on the supplied README**, **not recovered source code**. The published site did not expose the repository source for verification. Do not paste every example into one source file: overlapping snippets such as schema declarations are meant to be studied individually, then reconciled with your codebase. Each snippet identifies its intended source path and explains the business rule it demonstrates.
+
+### Allowlisted profile update and deactivation
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { User } from '../models/index.js';
+
+export async function updateMe(userId, input) {
+  // Never copy role, verified, active or password from req.body.
+  const patch = {};
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.city !== undefined) patch['profile.city'] = input.city;
+  if (input.phone !== undefined) patch['profile.phone'] = input.phone;
+  const updated = await User.findOneAndUpdate(
+    { _id: userId, active: true, verified: true },
+    { $set: patch }, { new: true, runValidators: true },
+  );
+  if (!updated) { const e = new Error('Not found'); e.status = 404; throw e; }
+  return { id: updated.id, name: updated.name,
+    email: updated.email, city: updated.profile?.city };
+}
+
+export async function deactivateMe(userId) {
+  // Soft account deactivation; it is NOT GDPR-style permanent erasure.
+  await User.updateOne({ _id: userId, active: true }, { $set: { active: false } });
+  return { deactivated: true };
+}
+```
+
+**Why this code exists:** Allowlisting prevents mass assignment. Deactivation invalidates future authenticated requests because auth reloads the User.
+
+**Try it:** Send role=admin in profile PATCH; verify it is not updated. Deactivate then retry with the old token.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Verify old password before changing it
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import bcrypt from 'bcrypt';
+import { User } from '../models/index.js';
+
+export async function changeMyPassword(userId, oldPassword, newPassword) {
+  const user = await User.findById(userId).select('+password');
+  if (!user || !(await bcrypt.compare(oldPassword, user.password))) {
+    const e = new Error('Invalid credentials'); e.status = 401; throw e;
+  }
+  if (newPassword.length < 12 || newPassword.length > 72 ||
+      Buffer.byteLength(newPassword) > 72) {
+    const e = new Error('Invalid password'); e.status = 422; throw e;
+  }
+  user.password = await bcrypt.hash(newPassword, 12);
+  await user.save();
+  // No token blacklist exists: old unexpired JWTs remain usable.
+  return { changed: true };
+}
+```
+
+**Why this code exists:** Checking the old password is reauthentication; password changes are not JWT revocation in the documented source.
+
+**Try it:** Change password; show that a previously issued JWT still authenticates before its expiry.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Admin-only user changes cannot target the actor
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { User } from '../models/index.js';
+
+export async function adminUpdateUser(actorId, targetId, changes) {
+  if (String(actorId) === String(targetId)) {
+    const e = new Error('Cannot change own admin record'); e.status = 409; throw e;
+  }
+  const patch = {};
+  // Only these two administrative fields are accepted.
+  if (changes.role !== undefined) patch.role = changes.role;
+  if (changes.active !== undefined) patch.active = changes.active;
+  const user = await User.findByIdAndUpdate(targetId, { $set: patch },
+    { new: true, runValidators: true });
+  if (!user) { const e = new Error('Not found'); e.status = 404; throw e; }
+  return { id: user.id, name: user.name, email: user.email,
+    role: user.role, active: user.active };
+}
+```
+
+**Why this code exists:** Route-level roles("admin") and service-level self restriction handle different threats.
+
+**Try it:** Try assigning moderator to a second account, then try updating the current administrator.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Bootstrap a verified administrator
+
+**File illustrated:** `scripts/promote-admin.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import mongoose from 'mongoose';
+import { User } from '../src/models/index.js';
+
+// Run after connecting to MongoDB and loading validated environment secrets.
+export async function promoteVerified(email) {
+  const account = await User.findOneAndUpdate(
+    { email: email.trim().toLowerCase(), active: true, verified: true },
+    { $set: { role: 'admin' } }, { new: true },
+  );
+  if (!account) throw new Error('No active verified account found');
+  console.log('Verified administrator promoted'); // never log credentials
+  return { id: account.id, role: account.role };
+}
+// This is a bootstrap helper, not a public API route.
+```
+
+**Why this code exists:** The administrator cannot be bootstrapped through unprotected signup payload fields.
+
+**Try it:** Verify an account first; reject promotion of a pending/unverified account.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
 ## Verification checklist
 
 - [ ] PATCH with role, verified, and password fields must not allow privilege changes.

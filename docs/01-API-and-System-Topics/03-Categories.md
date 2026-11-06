@@ -51,6 +51,123 @@ Authorization: Bearer <admin-token>
 
 The README establishes root/child creation semantics; inspect the actual category validator for exact POST/PATCH body field names.
 
+## Annotated implementation examples (read alongside the real source)
+
+> **Important:** These are newly written, commented **teaching implementations based on the supplied README**, **not recovered source code**. The published site did not expose the repository source for verification. Do not paste every example into one source file: overlapping snippets such as schema declarations are meant to be studied individually, then reconciled with your codebase. Each snippet identifies its intended source path and explains the business rule it demonstrates.
+
+### Categories with bounded hierarchy and reservation counters
+
+**File illustrated:** `src/models/index.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import mongoose from 'mongoose';
+const { Schema, model } = mongoose;
+const categorySchema = new Schema({
+  name: { type: String, required: true, trim: true },
+  slug: { type: String, required: true, unique: true },
+  parent: { type: Schema.Types.ObjectId, ref: 'Category', default: null },
+  active: { type: Boolean, default: true },
+  // Counters protect against deleting a category during new references.
+  references: { type: Number, default: 0, min: 0 },
+  children: { type: Number, default: 0, min: 0 },
+}, { timestamps: true });
+categorySchema.index({ name: 1, parent: 1 }, { unique: true });
+export const Category = model('Category', categorySchema);
+```
+
+**Why this code exists:** Two counters serialize delete attempts against category/child creation. They can overcount after process crashes.
+
+**Try it:** Attempt deletion while references or children are nonzero; explain why it must fail with a conflict.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Reserve a one-level child category
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { Category } from '../models/index.js';
+
+export async function createChildCategory({ name, slug, parentId }) {
+  // The parent itself must be a root category: depth <= 1.
+  const parent = await Category.findOneAndUpdate(
+    { _id: parentId, parent: null, active: true },
+    { $inc: { children: 1 } }, { new: true },
+  );
+  if (!parent) { const e = new Error('Invalid parent'); e.status = 422; throw e; }
+  try {
+    return await Category.create({ name, slug, parent: parentId, active: true });
+  } catch (error) {
+    // Compensate if uniqueness or validation rejects new child.
+    await Category.updateOne({ _id: parentId }, { $inc: { children: -1 } });
+    throw error;
+  }
+}
+```
+
+**Why this code exists:** Checking parent: null in the reservation query rejects grandchildren.
+
+**Try it:** Create Vehicles→Cars and attempt Vehicles→Cars→Sedans; latter must fail.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Reserve category references before creating listings
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { Category, Listing } from '../models/index.js';
+
+export async function createDraft({ ownerId, categoryId, content }) {
+  // Atomic increment competes safely with zero-counter category deletion.
+  const category = await Category.findOneAndUpdate(
+    { _id: categoryId, active: true },
+    { $inc: { references: 1 } }, { new: true },
+  );
+  if (!category) { const e = new Error('Invalid category'); e.status = 422; throw e; }
+  try {
+    // Owner and status come from server context, never from request JSON.
+    return await Listing.create({ ...content, owner: ownerId,
+      category: categoryId, status: 'draft', deleted: false, images: [] });
+  } catch (error) {
+    // Ordinary failure compensation. A crash can leave a safe overcount.
+    await Category.updateOne({ _id: categoryId }, { $inc: { references: -1 } });
+    throw error;
+  }
+}
+```
+
+**Why this code exists:** Reserve first; create second; compensate failures rather than using an unsafe check-then-write.
+
+**Try it:** Simulate failing Listing.create, then assert the counter is restored.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Conditionally delete empty categories
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { Category } from '../models/index.js';
+
+export async function deleteCategory(id) {
+  // Deletion fails if a Listing reference or child reservation exists.
+  const deleted = await Category.findOneAndDelete({
+    _id: id, references: 0, children: 0,
+  });
+  if (!deleted) { const e = new Error('Category is in use'); e.status = 409; throw e; }
+  // The real implementation must also release the parent's child counter
+  // when deleting a child, with compensation on failure.
+  return { deleted: true };
+}
+```
+
+**Why this code exists:** The zero-counter condition is applied to the DELETE itself; a pre-read would race.
+
+**Try it:** Race a category reservation with deletion. Describe the expected serial order.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
 ## Verification checklist
 
 - [ ] Create root and first-level child; reject third level.

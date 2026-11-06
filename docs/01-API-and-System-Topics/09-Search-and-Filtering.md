@@ -47,6 +47,65 @@ GET /api/ads?q=.*
 
 In the second request, `.*` must be treated as literal input, not a pattern matching all titles.
 
+## Annotated implementation examples (read alongside the real source)
+
+> **Important:** These are newly written, commented **teaching implementations based on the supplied README**, **not recovered source code**. The published site did not expose the repository source for verification. Do not paste every example into one source file: overlapping snippets such as schema declarations are meant to be studied individually, then reconciled with your codebase. Each snippet identifies its intended source path and explains the business rule it demonstrates.
+
+### Safe public ad filter builder
+
+**File illustrated:** `src/utils/query.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+export const escapeRegex = (value) =>
+  // Escape regex special characters so q='.*' means literal punctuation.
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export function buildPublicAdFilter(q) {
+  // The client can NEVER override this mandatory visibility condition.
+  const filter = { status: 'published', deleted: false };
+  if (q.q) filter.title = { $regex: escapeRegex(q.q), $options: 'i' };
+  if (q.city) filter.city = q.city;
+  if (q.condition) filter.condition = q.condition;
+  if (q.category) filter.category = q.category;
+  if (q.minPrice !== undefined || q.maxPrice !== undefined) {
+    filter.price = {};
+    if (q.minPrice !== undefined) filter.price.$gte = Number(q.minPrice);
+    if (q.maxPrice !== undefined) filter.price.$lte = Number(q.maxPrice);
+  }
+  return filter;
+}
+```
+
+**Why this code exists:** Allowlist query fields and add mandatory published/deleted predicates independently of input.
+
+**Try it:** Search with q=.* and verify private listings do not appear.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Find public ads with bounded search and pagination
+
+**File illustrated:** `src/services/marketplace.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { Listing } from '../models/index.js';
+import { buildPublicAdFilter, pagination } from '../utils/query.js';
+
+export async function searchAds(input) {
+  // Validate type, length, ObjectId and price bounds in route validators.
+  const filter = buildPublicAdFilter(input);
+  const { skip, limit, sort } = pagination(input);
+  // Skip/limit is bounded. No total count is promised by this API.
+  const ads = await Listing.find(filter).sort(sort).skip(skip).limit(limit).lean();
+  return ads;
+}
+```
+
+**Why this code exists:** Validation, mandatory visibility and stable sort compose into a predictable query.
+
+**Try it:** Query for an unpublished draft with q and filters and show it never appears.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
 ## Verification checklist
 
 - [ ] Seed published, draft, pending, sold, and deleted listings; only approved records return.

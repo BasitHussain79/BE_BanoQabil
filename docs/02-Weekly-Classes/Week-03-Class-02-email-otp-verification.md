@@ -53,6 +53,126 @@ OTP lives on User; success removes OTP hash/expiry and sets verified.
 5. Run a valid case and at least two invalid cases. Capture **HTTP status**, safe response shape, **database state**, and provider effects if any.
 6. State which validation or authorization boundary prevented an invalid transition; add a regression test when feasible.
 
+## 9A. Guided annotated code lab
+
+The following commented examples are aligned to the **documented behavior**, not copied from the unseen repository. Read each block carefully, then compare it with the matching module in your source. Treat unknown field names and integration wiring as items to verify. Code blocks are examples within this Markdown class, not proof that those exact identifiers occur in Project 01.
+
+### Generate and protect six-digit email codes
+
+**File illustrated:** `src/utils/otp.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { randomInt, createHmac } from 'node:crypto';
+
+// Always normalize identity before binding the OTP to it.
+export const normalizedEmail = (email) => email.trim().toLowerCase();
+
+export function generateCode() {
+  // crypto.randomInt is suitable for security-sensitive random numbers.
+  // padStart preserves leading zeroes, e.g., 000042.
+  return String(randomInt(0, 1_000_000)).padStart(6, '0');
+}
+
+export function hashCode(email, code, secret) {
+  // Never persist the six-digit code itself.
+  // A separate OTP_SECRET prevents reusing the JWT signing key.
+  return createHmac('sha256', secret)
+    .update(`${normalizedEmail(email)}:${code}`)
+    .digest('hex');
+}
+```
+
+**Why this code exists:** A code is tied to its normalized email address and stored as an HMAC instead of plaintext.
+
+**Try it:** Change only the case of the email; demonstrate identical HMACs with the same secret and different HMACs for different email addresses.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Atomically consume a valid OTP
+
+**File illustrated:** `src/services/auth.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { User } from '../models/index.js';
+import { hashCode, normalizedEmail } from '../utils/otp.js';
+
+export function makeVerifier({ otpSecret, now = () => new Date() }) {
+  return async function verify({ email, code }) {
+    const cleanEmail = normalizedEmail(email);
+    const nowAt = now();
+    // Every eligibility condition is checked in ONE conditional MongoDB write.
+    // A second concurrent request cannot consume the same code again.
+    const updated = await User.findOneAndUpdate(
+      {
+        email: cleanEmail, active: true, verified: false,
+        'otp.hash': hashCode(cleanEmail, code, otpSecret),
+        'otp.expiresAt': { $gt: nowAt },
+        'otp.attempts': { $lt: 5 },
+      },
+      { $set: { verified: true },
+        $unset: { 'otp.hash': 1, 'otp.expiresAt': 1, 'otp.sentAt': 1 },
+      },
+      { new: true, projection: { password: 0, 'otp.hash': 0 } },
+    );
+    if (updated) return { verified: true };
+    // A real service separately performs a guarded attempt increment for
+    // eligible incorrect guesses; never increment expired/verified accounts.
+    const error = new Error('Invalid or expired code');
+    error.status = 400;
+    throw error;
+  };
+}
+```
+
+**Why this code exists:** Conditional writes are essential: a read-then-save verification would allow two simultaneous successful requests.
+
+**Try it:** Start two simultaneous verifies with the same valid code; one should return success and the other a safe error.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Resend cooldown and bounded guesses
+
+**File illustrated:** `src/services/auth.js` · **Status:** annotated reference example, **not a verbatim extract** from the unavailable repository.
+
+```javascript
+import { User } from '../models/index.js';
+import { generateCode, hashCode, normalizedEmail } from '../utils/otp.js';
+
+export async function resendOtp({ email, otpSecret, mailer, now = () => new Date() }) {
+  const normalized = normalizedEmail(email);
+  const time = now();
+  const code = generateCode();
+  // Compare-and-swap prevents two simultaneous resends inside a 60s window.
+  const updated = await User.findOneAndUpdate(
+    { email: normalized, active: true, verified: false,
+      $or: [{ 'otp.sentAt': { $exists: false } },
+        { 'otp.sentAt': { $lte: new Date(+time - 60_000) } }] },
+    { $set: { 'otp.hash': hashCode(normalized, code, otpSecret),
+      'otp.sentAt': time, 'otp.expiresAt': new Date(+time + 600_000),
+      'otp.attempts': 0 } },
+    { new: true },
+  );
+  if (!updated) { const e = new Error('Not eligible to resend'); e.status = 429; throw e; }
+  // Delivery errors do not automatically remove the newly stored state.
+  await mailer.sendVerification({ to: normalized, code });
+  return { sent: true };
+}
+```
+
+**Why this code exists:** The resend must be a conditional write rather than a separate time check.
+
+**Try it:** Inject time at +59 seconds and +60 seconds. Explain why only the latter may succeed.
+
+**Before using in production:** Compare model property names, imports, validation, error types, and route signatures against the real Project 01 source. This excerpt teaches the documented invariant; it may omit neighboring middleware or application wiring.
+
+### Explain the request end to end
+
+1. **Input:** Which HTTP fields come from the client? Which values must be derived from the current User or database?
+2. **Policy:** Point to the authentication, role, owner, participant, validation or state check.
+3. **Database/provider effects:** Identify the conditional query, schema/index, and any SMTP/Cloudinary operation.
+4. **Failure:** Predict HTTP status AND durable state when one operation fails.
+5. **Evidence:** Capture a successful request, a denied request, and a database or fake-provider assertion.
+
 ## 10. Code explanation / tracing exercise
 
 Write a five-column trace table: **route** | **validator/middleware** | **service rule** | **database/provider operation** | **public response**. Fill it from the actual source, not from assumed Express scaffolding. If a source snippet is absent, leave its exact identifier as `verify in source`.
